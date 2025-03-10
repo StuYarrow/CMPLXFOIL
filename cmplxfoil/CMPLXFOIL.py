@@ -108,7 +108,9 @@ class CMPLXFOIL(BaseSolver):
         # Dictionary with dictionary of functions for each aero problem
         self.funcs = {}
         self.funcsComplex = {}
-        self.functionList = ["cl", "cd", "cm"]  # available functions
+        self.functionList = ["cl", "cd", "cm","cp_visc", "x", "y", "tau", "uinf","cp_visc_upper","cp_invisc_upper",
+                             "x_upper","y_upper","cp_visc_lower","cp_invisc_lower","x_lower","y_lower","cf_upper",
+                             "x_cf_upper","y_cf_upper","cf_lower","x_cf_lower","y_cf_lower",]  # available functions
 
         # When the XFOIL solver is called, slice data is saved (key is the current
         # AeroProblem name). In the associated value is a dictionary containing
@@ -280,13 +282,6 @@ class CMPLXFOIL(BaseSolver):
         # Call XFOIL
         xfoil.oper()
 
-        # Store results in dictionary for current aero problem
-        funcs[aeroProblem.name] = {
-            "cl": dtype(xfoil.cr09.cl),
-            "cd": dtype(xfoil.cr09.cd),
-            "cm": dtype(xfoil.cr09.cm),
-        }
-
         # Pull out and process the pressure and skin friction coefficient data
         cpv = xfoil.cr04.cpv  # viscous
         cpi = xfoil.cr04.cpi  # inviscid
@@ -306,6 +301,33 @@ class CMPLXFOIL(BaseSolver):
         yCfUpper = y[iPanUpper].copy().astype(dtype)
         xCfLower = x[iPanLower].copy().astype(dtype)
         yCfLower = y[iPanLower].copy().astype(dtype)
+
+        # Store results in dictionary for current aero problem
+        funcs[aeroProblem.name] = {
+            "cl": dtype(xfoil.cr09.cl),
+            "cd": dtype(xfoil.cr09.cd),
+            "cm": dtype(xfoil.cr09.cm),
+            "cp_visc":xfoil.cr04.cpv.astype(dtype),
+            "cp_invisc":xfoil.cr04.cpi.astype(dtype),
+            "x":xfoil.cr05.x.astype(dtype),
+            "y":xfoil.cr05.y.astype(dtype),
+            "tau": xfoil.cr15.tau.astype(dtype),
+            "uinf": dtype(xfoil.cr09.qinf),
+            "cp_visc_upper": cpv[:idx_lower_start].copy().astype(dtype),
+            "cp_invisc_upper": cpi[:idx_lower_start].copy().astype(dtype),
+            "x_upper": x[:idx_lower_start].copy().astype(dtype),
+            "y_upper": y[:idx_lower_start].copy().astype(dtype),
+            "cp_visc_lower": cpv[idx_lower_start:end_foil_idx].copy().astype(dtype),
+            "cp_invisc_lower": cpi[idx_lower_start:end_foil_idx].copy().astype(dtype),
+            "x_lower": x[idx_lower_start:end_foil_idx].copy().astype(dtype),
+            "y_lower": y[idx_lower_start:end_foil_idx].copy().astype(dtype),
+            "cf_upper": tauUpper / (0.5 * uInf**2),
+            "x_cf_upper": xCfUpper,
+            "y_cf_upper": yCfUpper,
+            "cf_lower": tauLower / (0.5 * uInf**2),
+            "x_cf_lower": xCfLower,
+            "y_cf_lower": yCfLower,
+        }
 
         sliceData[aeroProblem.name] = {
             "cp_visc_upper": cpv[:idx_lower_start].copy().astype(dtype),
@@ -664,11 +686,18 @@ class CMPLXFOIL(BaseSolver):
         # Preallocate the funcsSens dictionary with zeros for the desired sensitivities
         for f in evalFuncs:
             funcsSens[self.curAP.name + "_" + f] = {}
+            func = self.funcs[self.curAP.name][f]
             for dvName, dvVal in DVs.items():
                 if isinstance(dvVal, np.ndarray):
-                    funcsSens[self.curAP.name + "_" + f][dvName] = np.zeros(dvVal.shape, dtype=float)
+                    if isinstance(func, np.ndarray):
+                        funcsSens[self.curAP.name + "_" + f][dvName] = np.zeros((dvVal.shape[0],len(func)), dtype=float)
+                    else:
+                        funcsSens[self.curAP.name + "_" + f][dvName] = np.zeros(dvVal.shape, dtype=float)
                 else:
-                    funcsSens[self.curAP.name + "_" + f][dvName] = np.zeros(1)
+                    if isinstance(func, np.ndarray):
+                        funcsSens[self.curAP.name + "_" + f][dvName] = np.zeros(len(func))
+                    else:
+                        funcsSens[self.curAP.name + "_" + f][dvName] = np.zeros(1)
 
         # Loop over design variables and compute derivatives of each
         for dvName, dvVal in DVs.items():
